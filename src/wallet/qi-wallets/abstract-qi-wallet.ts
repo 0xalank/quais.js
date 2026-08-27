@@ -891,16 +891,12 @@ export abstract class AbstractQiWallet {
     ): Promise<void> {
         let consecutiveUnused = currentUnusedCount;
 
-        // Generate addresses needed to reach gap limit, plus a small buffer
-        // Keep batch size small to avoid blocking the event loop with key derivation
-        // (crypto operations are CPU-intensive)
-        const batchMultiplier = 2;
-
         while (consecutiveUnused < this.gapLimit) {
-            // Generate just enough addresses to potentially reach the gap limit
-            // plus a small buffer to reduce RPC round-trips
+            // Derive only addresses that will be checked. Over-deriving advances
+            // the BIP44 cursor and leaves unchecked UNKNOWN addresses behind the
+            // gap limit, allowing later change outputs to become undiscoverable.
             const addressesNeeded = this.gapLimit - consecutiveUnused;
-            const addressesToGenerate = Math.max(addressesNeeded, this.gapLimit) * batchMultiplier;
+            const addressesToGenerate = addressesNeeded;
             const newAddresses: QiAddressInfo[] = [];
 
             for (let i = 0; i < addressesToGenerate; i++) {
@@ -1190,8 +1186,9 @@ export abstract class AbstractQiWallet {
         const consecutiveUnused = this.countConsecutiveUnusedAddresses(addresses);
         const needsMore = consecutiveUnused < this.gapLimit;
         const addressesNeeded = this.gapLimit - consecutiveUnused;
-        // Generate at least gapLimit addresses, with a multiplier for efficiency
-        const addressesToGenerate = needsMore ? Math.max(addressesNeeded, this.gapLimit) * 2 : 0;
+        // Derive only addresses that will be checked. Advancing beyond the
+        // checked gap leaves UNKNOWN holes that later change generation skips.
+        const addressesToGenerate = needsMore ? addressesNeeded : 0;
 
         return { consecutiveUnused, needsMore, addressesToGenerate };
     }
@@ -1212,8 +1209,9 @@ export abstract class AbstractQiWallet {
         createdOutpoints: OutpointDeltaResponse,
     ): { reachedGapLimit: boolean; consecutiveUnused: number } {
         // Get current consecutive unused count
+        const newAddressSet = new Set(newAddresses.map((address) => address.address));
         const existingAddresses = this.getAddressesInZone(newAddresses[0]?.zone ?? Zone.Cyprus1).filter(
-            (addr) => addr.account === (newAddresses[0]?.account ?? 0),
+            (addr) => addr.account === (newAddresses[0]?.account ?? 0) && !newAddressSet.has(addr.address),
         );
         let consecutiveUnused = this.countConsecutiveUnusedAddresses(existingAddresses);
 

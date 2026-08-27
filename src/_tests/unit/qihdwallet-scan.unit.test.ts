@@ -95,6 +95,17 @@ describe('QiHDWallet scan', async function () {
                 const sortedExpectedChangeAddresses = test.expected_change_addresses.sort((a, b) => a.index - b.index);
                 assert.deepEqual(sortedChangeAddresses, sortedExpectedChangeAddresses);
             });
+            it('does not leave unchecked addresses behind the scan gap', function () {
+                const addresses = [
+                    ...wallet.getAddressesForZone(Zone.Cyprus1),
+                    ...wallet.getChangeAddressesForZone(Zone.Cyprus1),
+                ];
+                assert.equal(
+                    addresses.some((address) => address.status === 'UNKNOWN'),
+                    false,
+                    'scan must not advance the derivation cursor past unchecked addresses',
+                );
+            });
 
             it('validates wallet balance', async function () {
                 const balance = await wallet.getBalanceForZone(Zone.Cyprus1);
