@@ -106,7 +106,7 @@ CALL or a delegatecall to supplied MultiSendCallOnly; callers must verify that
 address. decodeSponsoredSafe enforces the sponsored subset, not all Safe features.
 SafeTx has no expiry; nonce consumption prevents replay. A UI timeout does not
 invalidate a signed transaction. safeMessageRequest constructs the standard handler's
-account-bound ERC-1271 wrapping; it does not use ERC-7739 envelopes.
+account-bound ERC-1271 wrapping.
 
 This adapter supports the single-owner, threshold-one profile without modules/guard.
 Safe itself supports more configurations. Native-funded integration and actual
