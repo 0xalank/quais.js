@@ -5,6 +5,7 @@ import {
   type MessagePeer,
   type ConnectorMessageEvent,
   boundedMessage,
+  isConnectorUuid,
   parseParams,
   parseRequest,
   trustedOrigin,
@@ -23,8 +24,7 @@ export function serveWalletRequests(options: {
 }) {
   const browser = connectorBrowser();
   const origin = trustedOrigin(options.origin);
-  if (!/^[0-9a-f-]{36}$/i.test(options.channel))
-    throw new Error("Invalid channel");
+  if (!isConnectorUuid(options.channel)) throw new Error("Invalid channel");
   const seen = new Set<string>();
   let active: { id: string; abort: AbortController } | undefined,
     disposed = false;
@@ -33,18 +33,39 @@ export function serveWalletRequests(options: {
     result?: unknown,
     error?: { code: string; message: string },
   ) => {
-    if (!disposed)
+    if (disposed) return;
+    const envelope = {
+      protocol: CONNECTOR_PROTOCOL,
+      version: 1,
+      channel: options.channel,
+      type: "response",
+      id,
+    };
+    const response = { ...envelope, ...(error ? { error } : { result }) };
+    const fallback = {
+      ...envelope,
+      error: {
+        code: "INVALID_RESPONSE",
+        message:
+          "The wallet could not return this response. Check wallet activity before retrying.",
+      },
+    };
+    // Match the client's inbound bound, including envelope and error fields.
+    // An action may already have executed; never imply that retrying is safe.
+    try {
       options.source.postMessage(
-        {
-          protocol: CONNECTOR_PROTOCOL,
-          version: 1,
-          channel: options.channel,
-          type: "response",
-          id,
-          ...(error ? { error } : { result }),
-        },
+        boundedMessage(response) ? response : fallback,
         origin,
       );
+    } catch {
+      // JSON-compatible size does not guarantee structured-clone compatibility.
+      // For example, function-valued fields are omitted by JSON.stringify.
+      try {
+        options.source.postMessage(fallback, origin);
+      } catch {
+        /* Peer closed. */
+      }
+    }
   };
   const receive = (event: ConnectorMessageEvent) => {
     if (

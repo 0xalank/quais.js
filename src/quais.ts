@@ -373,4 +373,4 @@ export type { Utf8ErrorFunc, UnicodeNormalizationForm, Utf8ErrorReason } from '.
 export type { KeystoreAccount, EncryptOptions } from './wallet/index.js';
 
 // SMART ACCOUNTS: protocol-neutral wallet connector.
-export * from "./smart-account/index.js";
+export * from './smart-account/index.js';

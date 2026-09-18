@@ -68,7 +68,7 @@ const addr = (value: unknown): value is string =>
   typeof value === "string" &&
   /^0x[a-fA-F0-9]{40}$/.test(value) &&
   !/^0x0{40}$/i.test(value);
-const uuid = (value: unknown): value is string =>
+export const isConnectorUuid = (value: unknown): value is string =>
   typeof value === "string" &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value,
@@ -121,8 +121,8 @@ export function parseRequest(value: unknown): ConnectorRequest {
   if (
     v.protocol !== CONNECTOR_PROTOCOL ||
     v.version !== 1 ||
-    !uuid(v.channel) ||
-    !uuid(v.id) ||
+    !isConnectorUuid(v.channel) ||
+    !isConnectorUuid(v.id) ||
     !methods.includes(v.method as WalletMethod)
   )
     throw new Error("Invalid request");
@@ -227,6 +227,7 @@ export function parseResult(method: WalletMethod, result: unknown): unknown {
     if (
       v.protocolVersion !== 1 ||
       !uint(v.chainId) ||
+      v.chainId === "0" ||
       typeof v.accountProtocol !== "string" ||
       !Array.isArray(v.actions) ||
       !v.actions.every((a) => typeof a === "string") ||
@@ -241,6 +242,7 @@ export function parseResult(method: WalletMethod, result: unknown): unknown {
     if (
       typeof v.id !== "string" ||
       !uint(v.chainId) ||
+      v.chainId === "0" ||
       !addr(v.account) ||
       typeof v.actionHash !== "string" ||
       !/^0x[0-9a-f]{64}$/i.test(v.actionHash) ||
