@@ -8,3 +8,4 @@ export type {
 } from './connector-protocol.js';
 export { serveWalletRequests } from './connector-host.js';
 export type { HostContext } from './connector-host.js';
+export * from './safe.js';
