@@ -112,3 +112,23 @@ This adapter supports the single-owner, threshold-one profile without modules/gu
 Safe itself supports more configurations. Native-funded integration and actual
 browser signers must be tested by the host; inclusion in this library does not
 certify a live deployment. See [artifact provenance](SAFE_ARTIFACTS.md).
+
+## Funding a deployed Safe with native QUAI
+
+A native transfer with empty calldata still executes the Safe proxy's receive path.
+Quai requires the sender's transaction access list to cover the proxy and singleton.
+Generating an access list only for nonempty calldata is insufficient: an empty-data
+Pelagus transfer constructed with quais.js alpha.54 reverted with an empty list.
+
+The source fix in `AbstractSigner.populateQuaiTransaction` generates access lists
+for native type-0 transfers too, including when the caller sets a gas limit. It
+estimates gas with that same list, preserving caller-supplied lists. Explicit lists
+must be complete. This fix requires adoption by the sending wallet; updating the
+receiving wallet UI does not update an installed extension. It is not yet an npm
+release or proof of a successful funded transfer.
+
+For manual transaction preparation, call `provider.createAccessList(request)`,
+then `provider.estimateGas({ ...request, accessList })`, and include both results
+in the exact transaction reviewed and signed. Generate fresh values for each send;
+do not hardcode an incident's estimate or change the list after signing. A successful
+read-only call alone does not verify access-list enforcement during mining.
