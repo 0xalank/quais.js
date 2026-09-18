@@ -38,8 +38,10 @@ Capabilities do not reserve gas or guarantee admission.
 
 A custom `WalletTransport` may replace the popup transport for native/mobile hosts.
 It must enforce the same consent, signing and response-validation requirements.
-`serveWalletRequests` supplies source/origin/channel validation for browser hosts;
-it does not itself implement permissions, account verification or transaction review.
+`serveWalletRequests` supplies source/origin/channel validation for browser hosts.
+With the popup transport, omit `source` so the host binds the source from the
+first validated `hello` message; the popup has no `window.opener` reference.
+It does not itself implement permissions, account verification or transaction review.
 The reference Quai Smart Wallet host supplies these separately.
 
 ## Security and lifecycle
@@ -52,6 +54,8 @@ The reference Quai Smart Wallet host supplies these separately.
   transaction already submitted. Inspect activity/status before any retry.
 - Keep the popup open for noninteractive status reads. If closed, invoke the next
   request from a user gesture to reopen it. Reloading a pending popup requires recovery.
+- After 1,000 requests, the host returns `RECONNECT`. The transport closes that
+  popup; invoke the next request from a user gesture to open a fresh session.
 - Importing the module in Node is safe. Only creating the popup transport needs a browser.
 - A connected address is the smart account, not its owner signer. Changing an app's
   embedded signer does not move funds or transfer ownership.
@@ -112,3 +116,23 @@ This adapter supports the single-owner, threshold-one profile without modules/gu
 Safe itself supports more configurations. Native-funded integration and actual
 browser signers must be tested by the host; inclusion in this library does not
 certify a live deployment. See [artifact provenance](SAFE_ARTIFACTS.md).
+
+## Funding a deployed Safe with native QUAI
+
+A native transfer with empty calldata still executes the Safe proxy's receive path.
+Quai requires the sender's transaction access list to cover the proxy and singleton.
+Generating an access list only for nonempty calldata is insufficient: an empty-data
+Pelagus transfer constructed with quais.js alpha.54 reverted with an empty list.
+
+The source fix in `AbstractSigner.populateQuaiTransaction` generates access lists
+for native type-0 transfers too, including when the caller sets a gas limit. It
+estimates gas with that same list, preserving caller-supplied lists. Explicit lists
+must be complete. This fix requires adoption by the sending wallet; updating the
+receiving wallet UI does not update an installed extension. It is not yet an npm
+release or proof of a successful funded transfer.
+
+For manual transaction preparation, call `provider.createAccessList(request)`,
+then `provider.estimateGas({ ...request, accessList })`, and include both results
+in the exact transaction reviewed and signed. Generate fresh values for each send;
+do not hardcode an incident's estimate or change the list after signing. A successful
+read-only call alone does not verify access-list enforcement during mining.

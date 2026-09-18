@@ -130,11 +130,24 @@ export function createPopupTransport(options: {
           origin: trustedOrigin(browser.location.origin),
           channel,
         }).toString();
-        popup = browser.window.open(
-          destination,
+        const opened = browser.window.open(
+          new URL("about:blank"),
           "_blank",
           "popup,width=460,height=780",
         );
+        if (opened) {
+          try {
+            // Clear the opener while the blank popup is still same-origin.
+            opened.opener = null;
+            opened.location.replace(destination.toString());
+            popup = opened;
+          } catch {
+            opened.close();
+            return Promise.reject(
+              new WalletConnectorError("POPUP_BLOCKED", "Could not open the wallet popup."),
+            );
+          }
+        }
       }
       if (!popup)
         return Promise.reject(
@@ -213,14 +226,18 @@ export function createPopupTransport(options: {
             return;
           }
           if (data.type !== "response" || data.id !== id) return;
-          if (data.error)
+          if (data.error) {
+            if (data.error.code === "RECONNECT" && popup === peer) {
+              popup = null;
+              peer.close();
+            }
             finish(
               new WalletConnectorError(
                 String(data.error.code),
                 String(data.error.message),
               ),
             );
-          else {
+          } else {
             try {
               finish(undefined, parseResult(method, data.result));
             } catch {

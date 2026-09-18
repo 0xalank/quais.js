@@ -18,7 +18,7 @@ export interface HostContext {
 /** No signer/relay knowledge here. The handler MUST enforce connection consent and action review. */
 export function serveWalletRequests(options: {
   origin: string;
-  source: MessagePeer;
+  source?: MessagePeer;
   channel: string;
   handle(request: ConnectorRequest, context: HostContext): Promise<unknown>;
 }) {
@@ -26,6 +26,7 @@ export function serveWalletRequests(options: {
   const origin = trustedOrigin(options.origin);
   if (!isConnectorUuid(options.channel)) throw new Error("Invalid channel");
   const seen = new Set<string>();
+  let source = options.source;
   let active: { id: string; abort: AbortController } | undefined,
     disposed = false;
   const reply = (
@@ -33,7 +34,7 @@ export function serveWalletRequests(options: {
     result?: unknown,
     error?: { code: string; message: string },
   ) => {
-    if (disposed) return;
+    if (disposed || !source) return;
     const envelope = {
       protocol: CONNECTOR_PROTOCOL,
       version: 1,
@@ -53,7 +54,7 @@ export function serveWalletRequests(options: {
     // Match the client's inbound bound, including envelope and error fields.
     // An action may already have executed; never imply that retrying is safe.
     try {
-      options.source.postMessage(
+      source.postMessage(
         boundedMessage(response) ? response : fallback,
         origin,
       );
@@ -61,7 +62,7 @@ export function serveWalletRequests(options: {
       // JSON-compatible size does not guarantee structured-clone compatibility.
       // For example, function-valued fields are omitted by JSON.stringify.
       try {
-        options.source.postMessage(fallback, origin);
+        source.postMessage(fallback, origin);
       } catch {
         /* Peer closed. */
       }
@@ -70,7 +71,6 @@ export function serveWalletRequests(options: {
   const receive = (event: ConnectorMessageEvent) => {
     if (
       event.origin !== origin ||
-      event.source !== options.source ||
       !boundedMessage(event.data)
     )
       return;
@@ -81,8 +81,18 @@ export function serveWalletRequests(options: {
       value.channel !== options.channel
     )
       return;
+    if (!source) {
+      if (
+        value.type !== "hello" ||
+        !event.source ||
+        typeof (event.source as MessagePeer).postMessage !== "function"
+      )
+        return;
+      source = event.source as MessagePeer;
+    }
+    if (event.source !== source) return;
     if (value.type === "hello") {
-      options.source.postMessage(
+      source.postMessage(
         {
           protocol: CONNECTOR_PROTOCOL,
           version: 1,

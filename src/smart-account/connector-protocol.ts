@@ -204,6 +204,7 @@ export function parseResult(method: WalletMethod, result: unknown): unknown {
     if (
       typeof v.id !== "string" ||
       !/^0x[0-9a-f]{64}$/i.test(v.id) ||
+      typeof v.state !== "string" ||
       ![
         "reserved",
         "signed",
@@ -211,7 +212,7 @@ export function parseResult(method: WalletMethod, result: unknown): unknown {
         "confirmed",
         "reverted",
         "uncertain",
-      ].includes(String(v.state)) ||
+      ].includes(v.state) ||
       (v.txHash !== undefined &&
         (typeof v.txHash !== "string" || !/^0x[0-9a-f]{64}$/i.test(v.txHash)))
     )
@@ -232,7 +233,8 @@ export function parseResult(method: WalletMethod, result: unknown): unknown {
       !Array.isArray(v.actions) ||
       !v.actions.every((a) => typeof a === "string") ||
       !p ||
-      !["sponsored", "user-paid", "mixed"].includes(String(p.mode)) ||
+      (typeof p.mode !== "string" ||
+        !["sponsored", "user-paid", "mixed"].includes(p.mode)) ||
       typeof p.quotes !== "boolean" ||
       p.guaranteed !== false ||
       (p.userFeeWei !== undefined && !uint(p.userFeeWei))
@@ -246,7 +248,8 @@ export function parseResult(method: WalletMethod, result: unknown): unknown {
       !addr(v.account) ||
       typeof v.actionHash !== "string" ||
       !/^0x[0-9a-f]{64}$/i.test(v.actionHash) ||
-      !["sponsored", "user-paid"].includes(String(v.payment)) ||
+      (typeof v.payment !== "string" ||
+        !["sponsored", "user-paid"].includes(v.payment)) ||
       !uint(v.userFeeWei) ||
       typeof v.expiresAt !== "string" ||
       !Number.isFinite(Date.parse(v.expiresAt))
@@ -262,6 +265,8 @@ export interface MessagePeer {
 }
 export interface WalletPopup extends MessagePeer {
   readonly closed: boolean;
+  opener: unknown;
+  location: { replace(url: string): void };
   focus(): void;
   close(): void;
 }
