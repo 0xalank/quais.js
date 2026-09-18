@@ -115,6 +115,10 @@
     "./wordlists": {
       "import": "./lib/esm/wordlists/index.js",
       "default": "./lib/commonjs/wordlists/index.js"
+    },
+    "./smart-account": {
+      "import": "./lib/esm/smart-account/index.js",
+      "default": "./lib/commonjs/smart-account/index.js"
     }
   },
   "gitHead": "3bd0bf5b077f4aa5fab480474e3982e50e1af506",
