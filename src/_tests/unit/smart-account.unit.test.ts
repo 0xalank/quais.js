@@ -8,8 +8,13 @@ describe('smart-account client (no browser or signer required)', function () {
     it('accepts an interchangeable transport', async function () {
         const requests: string[] = [];
         const transport: WalletTransport = {
-            async request(method) { requests.push(method); return { address: account, chainId: '9' }; },
-            destroy() { requests.push('destroy'); },
+            async request(method) {
+                requests.push(method);
+                return { address: account, chainId: '9' };
+            },
+            destroy() {
+                requests.push('destroy');
+            },
         };
         const client = new SmartAccountClient(transport);
         assert.deepEqual(await client.connect(), { address: account, chainId: '9' });

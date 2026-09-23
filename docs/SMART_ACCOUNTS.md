@@ -46,20 +46,20 @@ The reference Quai Smart Wallet host supplies these separately.
 
 ## Security and lifecycle
 
-- Pin the wallet URL; never take it from an untrusted transaction or query string.
-- HTTPS is required except exact localhost origins for development. Popup messages
-  bind both window identity and origin, version, channel and request ID.
-- One outstanding request per connector. Requests are never automatically retried.
-- `AbortSignal`, popup closure and timeouts stop waiting. They cannot reverse a
-  transaction already submitted. Inspect activity/status before any retry.
-- Keep the popup open for noninteractive status reads. If closed, invoke the next
-  request from a user gesture to reopen it. Reloading a pending popup requires recovery.
-- After 1,000 requests, the host returns `RECONNECT`. The transport closes that
-  popup; invoke the next request from a user gesture to open a fresh session.
-- Importing the module in Node is safe. Only creating the popup transport needs a browser.
-- A connected address is the smart account, not its owner signer. Changing an app's
-  embedded signer does not move funds or transfer ownership.
-- Contract adapters and manifests must be versioned and reviewed independently.
+-   Pin the wallet URL; never take it from an untrusted transaction or query string.
+-   HTTPS is required except exact localhost origins for development. Popup messages
+    bind both window identity and origin, version, channel and request ID.
+-   One outstanding request per connector. Requests are never automatically retried.
+-   `AbortSignal`, popup closure and timeouts stop waiting. They cannot reverse a
+    transaction already submitted. Inspect activity/status before any retry.
+-   Keep the popup open for noninteractive status reads. If closed, invoke the next
+    request from a user gesture to reopen it. Reloading a pending popup requires recovery.
+-   After 1,000 requests, the host returns `RECONNECT`. The transport closes that
+    popup; invoke the next request from a user gesture to open a fresh session.
+-   Importing the module in Node is safe. Only creating the popup transport needs a browser.
+-   A connected address is the smart account, not its owner signer. Changing an app's
+    embedded signer does not move funds or transfer ownership.
+-   Contract adapters and manifests must be versioned and reviewed independently.
 
 This source addition is not a published npm release. Native end-to-end execution and
 supported signers must be tested by integrating wallet hosts before production use.

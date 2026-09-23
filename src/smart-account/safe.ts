@@ -20,11 +20,7 @@ import {
 } from './safe-types.js';
 export type { SafeAddress, SafeCall, SafeHex, SafeTypedRequest } from './safe-types.js';
 import { SAFE_PROXY_CREATION_CODE, SAFE_RUNTIME_HASHES } from './safe-artifacts.js';
-import {
-    QUAI_SAFE_PROFILE,
-    QUAI_SAFE_PROXY_CREATION_CODE,
-    QUAI_SAFE_RUNTIME_HASHES,
-} from './quai-safe-artifacts.js';
+import { QUAI_SAFE_PROFILE, QUAI_SAFE_PROXY_CREATION_CODE, QUAI_SAFE_RUNTIME_HASHES } from './quai-safe-artifacts.js';
 export { SAFE_RUNTIME_HASHES, SAFE_VERSION } from './safe-artifacts.js';
 export { QUAI_SAFE_PROFILE, QUAI_SAFE_RUNTIME_HASHES } from './quai-safe-artifacts.js';
 
@@ -38,6 +34,7 @@ export const SAFE_ABI = [
     'function execTransaction(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas,uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver,bytes signatures) payable returns(bool success)',
     'function getTransactionHash(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas,uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver,uint256 nonce) view returns(bytes32)',
     'function isValidSignature(bytes32 hash,bytes signature) view returns(bytes4)',
+    'event SafeReceived(address indexed sender,uint256 value)',
     'event ExecutionSuccess(bytes32 indexed txHash,uint256 payment)',
     'event ExecutionFailure(bytes32 indexed txHash,uint256 payment)',
 ] as const;
