@@ -119,10 +119,11 @@ certify a live deployment. See [artifact provenance](SAFE_ARTIFACTS.md).
 
 ## Funding a deployed Safe with native QUAI
 
-A native transfer with empty calldata still executes the Safe proxy's receive path.
-Quai requires the sender's transaction access list to cover the proxy and singleton.
-Generating an access list only for nonempty calldata is insufficient: an empty-data
-Pelagus transfer constructed with quais.js alpha.54 reverted with an empty list.
+For an upstream SafeProxy, a native transfer with empty calldata still executes the
+proxy and singleton receive path. Quai therefore requires the sender's transaction
+access list to cover both contracts. Generating a list only for nonempty calldata is
+insufficient: an empty-data Pelagus transfer constructed with quais.js alpha.54
+reverted with an empty list.
 
 The source fix in `AbstractSigner.populateQuaiTransaction` generates access lists
 for native type-0 transfers too, including when the caller sets a gas limit. It
@@ -136,3 +137,19 @@ then `provider.estimateGas({ ...request, accessList })`, and include both result
 in the exact transaction reviewed and signed. Generate fresh values for each send;
 do not hardcode an incident's estimate or change the list after signing. A successful
 read-only call alone does not verify access-list enforcement during mining.
+
+The `quai-receive-v1` deployment profile uses the unchanged Safe 1.4.1 singleton
+with a Quai-specific proxy and factory. Its proxy handles empty-calldata native
+deposits directly and emits the standard `SafeReceived` event, so that deposit path
+does not need to access the singleton. Pass the profile in `SafeDeployment`;
+discovery, creation and runtime verification then use the profile's pinned creation
+code and code hashes. Accounts created by the upstream and receiving profiles have
+different deterministic addresses.
+
+The embedded profile artifact uses Safe 1.4.1's Solidity 0.7.6 compiler settings.
+Its constructor, nonempty-calldata fallback and factory logic are source-compared
+to the pinned upstream release; direct `receive()` is the explicit behavior delta.
+
+The receiving profile does not remove access-list requirements for token calls,
+Safe execution, swaps or other contract interactions. Keep normal transaction
+access-list generation enabled even when a dApp uses this profile.

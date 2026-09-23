@@ -20,7 +20,13 @@ import {
 } from './safe-types.js';
 export type { SafeAddress, SafeCall, SafeHex, SafeTypedRequest } from './safe-types.js';
 import { SAFE_PROXY_CREATION_CODE, SAFE_RUNTIME_HASHES } from './safe-artifacts.js';
+import {
+    QUAI_SAFE_PROFILE,
+    QUAI_SAFE_PROXY_CREATION_CODE,
+    QUAI_SAFE_RUNTIME_HASHES,
+} from './quai-safe-artifacts.js';
 export { SAFE_RUNTIME_HASHES, SAFE_VERSION } from './safe-artifacts.js';
+export { QUAI_SAFE_PROFILE, QUAI_SAFE_RUNTIME_HASHES } from './quai-safe-artifacts.js';
 
 export const SAFE_ABI = [
     'function setup(address[] owners,uint256 threshold,address to,bytes data,address fallbackHandler,address paymentToken,uint256 payment,address paymentReceiver)',
@@ -45,9 +51,25 @@ export const safeFactoryInterface = new Interface(SAFE_FACTORY_ABI);
 const multiSendInterface = new Interface(['function multiSend(bytes transactions) payable']);
 export interface SafeDeployment {
     version?: '1.4.1';
+    profile?: 'upstream' | typeof QUAI_SAFE_PROFILE;
     singleton: Address;
     fallbackHandler: Address;
     multiSendCallOnly: Address;
+}
+function safeProxyArtifacts(deployment: SafeDeployment) {
+    if (deployment.profile === QUAI_SAFE_PROFILE)
+        return {
+            creationCode: QUAI_SAFE_PROXY_CREATION_CODE,
+            proxyRuntimeHash: QUAI_SAFE_RUNTIME_HASHES.QuaiSafeProxy,
+            factoryRuntimeHash: QUAI_SAFE_RUNTIME_HASHES.QuaiSafeProxyFactory,
+        } as const;
+    if (deployment.profile !== undefined && deployment.profile !== 'upstream')
+        throw Error('Unsupported Safe proxy profile');
+    return {
+        creationCode: SAFE_PROXY_CREATION_CODE,
+        proxyRuntimeHash: SAFE_RUNTIME_HASHES.SafeProxy,
+        factoryRuntimeHash: SAFE_RUNTIME_HASHES.SafeProxyFactory,
+    } as const;
 }
 export interface SafeTransaction {
     to: Address;
@@ -99,7 +121,7 @@ export function predictSafe(factory: Address, owner: Address, deployment: SafeDe
     const initializer = safeInitializer(owner, deployment);
     const salt = solidityPackedKeccak256(['bytes32', 'uint256'], [keccak256(initializer), saltNonce]);
     const initCode = concat([
-        SAFE_PROXY_CREATION_CODE,
+        safeProxyArtifacts(deployment).creationCode,
         AbiCoder.defaultAbiCoder().encode(['address'], [address(deployment.singleton)]),
     ]);
     return address(getCreate2Address(address(factory), salt, keccak256(initCode)));
@@ -301,7 +323,7 @@ export interface SafeReader {
 }
 export async function verifySafeDeployment(reader: SafeReader, factory: Address, deployment: SafeDeployment) {
     for (const [target, hash] of [
-        [factory, SAFE_RUNTIME_HASHES.SafeProxyFactory],
+        [factory, safeProxyArtifacts(deployment).factoryRuntimeHash],
         [deployment.singleton, SAFE_RUNTIME_HASHES.Safe],
         [deployment.fallbackHandler, SAFE_RUNTIME_HASHES.CompatibilityFallbackHandler],
         [deployment.multiSendCallOnly, SAFE_RUNTIME_HASHES.MultiSendCallOnly],
@@ -319,7 +341,8 @@ export async function verifySafeAccount(
     deployment: SafeDeployment,
     expectedOwner?: Address,
 ): Promise<Address> {
-    if (keccak256(await reader.code(account)) !== SAFE_RUNTIME_HASHES.SafeProxy) throw Error('Unrecognized Safe proxy');
+    if (keccak256(await reader.code(account)) !== safeProxyArtifacts(deployment).proxyRuntimeHash)
+        throw Error('Unrecognized Safe proxy');
     const read = async (name: string, args: unknown[] = []) =>
         safeInterface.decodeFunctionResult(
             name,

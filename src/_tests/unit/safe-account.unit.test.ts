@@ -10,6 +10,7 @@ import {
     encodeSafeExecute,
     decodeSponsoredSafe,
     safeMessageRequest,
+    QUAI_SAFE_PROFILE,
 } from '../../smart-account/index.js';
 import { TypedDataEncoder, hashMessage } from '../../hash/index.js';
 import { SigningKey, randomBytes } from '../../crypto/index.js';
@@ -39,6 +40,16 @@ describe('upstream Safe adapter', function () {
         assert.equal(decoded.name, 'createProxyWithNonce');
         assert.equal(decoded.args[1], predicted.initializer);
         assert.equal(decoded.args[2], predicted.saltNonce);
+    });
+    it('binds the Quai receiving proxy profile into deterministic discovery', function () {
+        const receiving = findSafe(account, recipient, {
+            ...deployment,
+            profile: QUAI_SAFE_PROFILE,
+        });
+        const upstream = findSafe(account, recipient, deployment);
+        assert.equal(BigInt(receiving.account) >> 151n, 0n);
+        assert.notEqual(receiving.account, upstream.account);
+        assert.notEqual(receiving.saltNonce, upstream.saltNonce);
     });
     it('accepts standard typed and personal-sign signatures and binds account/chain', function () {
         const key = new SigningKey(randomBytes(32)),
