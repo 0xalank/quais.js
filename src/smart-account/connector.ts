@@ -10,10 +10,16 @@ import {
     trustedOrigin,
     type WalletMethod,
     type SendCalls,
+    type SignMessage,
+    type DepositQuote,
+    type DepositTransfer,
     type WalletAccount,
     type WalletCapabilities,
     type WalletOperation,
     type WalletFeeQuote,
+    type WalletSignature,
+    type WalletDepositPlan,
+    type WalletDepositStatus,
 } from './connector-protocol.js';
 export * from './connector-protocol.js';
 
@@ -25,29 +31,68 @@ export interface WalletTransport {
     destroy(): void;
 }
 export class SmartAccountClient {
+    private tail: Promise<void> = Promise.resolve();
+    private queued = 0;
+    private disposed = false;
     constructor(readonly transport: WalletTransport) {}
+    /** Includes the active request and requests waiting behind it. */
+    get pendingRequests() {
+        return this.queued;
+    }
+    private request<T>(method: WalletMethod, params: unknown, signal?: AbortSignal): Promise<T> {
+        if (this.disposed)
+            return Promise.reject(new WalletConnectorError('DISCONNECTED', 'Connector disposed'));
+        this.queued += 1;
+        const run = this.tail.then(async () => {
+            if (this.disposed)
+                throw new WalletConnectorError('DISCONNECTED', 'Connector disposed');
+            if (signal?.aborted)
+                throw new WalletConnectorError('CANCELLED', 'Request cancelled');
+            return this.transport.request(method, params, signal) as Promise<T>;
+        });
+        this.tail = run.then(() => undefined, () => undefined);
+        return run.finally(() => {
+            this.queued -= 1;
+        });
+    }
     connect(signal?: AbortSignal) {
-        return this.transport.request('connect', {}, signal) as Promise<WalletAccount>;
+        return this.request<WalletAccount>('connect', {}, signal);
     }
     getAccount(signal?: AbortSignal) {
-        return this.transport.request('getAccount', {}, signal) as Promise<WalletAccount>;
+        return this.request<WalletAccount>('getAccount', {}, signal);
     }
     getCapabilities(signal?: AbortSignal) {
-        return this.transport.request('getCapabilities', {}, signal) as Promise<WalletCapabilities>;
+        return this.request<WalletCapabilities>('getCapabilities', {}, signal);
     }
     getFeeQuote(request: SendCalls, signal?: AbortSignal) {
-        return this.transport.request('getFeeQuote', request, signal) as Promise<WalletFeeQuote>;
+        return this.request<WalletFeeQuote>('getFeeQuote', request, signal);
     }
     sendCalls(request: SendCalls, signal?: AbortSignal) {
-        return this.transport.request('sendCalls', request, signal) as Promise<WalletOperation>;
+        return this.request<WalletOperation>('sendCalls', request, signal);
+    }
+    signMessage(request: SignMessage, signal?: AbortSignal) {
+        return this.request<WalletSignature>('signMessage', request, signal);
+    }
+    getDepositQuote(request: DepositQuote, signal?: AbortSignal) {
+        return this.request<WalletDepositPlan>('getDepositQuote', request, signal);
+    }
+    getDepositStatus(request: DepositTransfer, signal?: AbortSignal) {
+        return this.request<WalletDepositStatus>('getDepositStatus', request, signal);
+    }
+    recoverDeposit(request: DepositTransfer, signal?: AbortSignal) {
+        return this.request<WalletOperation>('recoverDeposit', request, signal);
     }
     getOperation(id: string, signal?: AbortSignal) {
-        return this.transport.request('getOperation', { id }, signal) as Promise<WalletOperation>;
+        return this.request<WalletOperation>('getOperation', { id }, signal);
+    }
+    getOperationByRequest(requestId: string, signal?: AbortSignal) {
+        return this.request<WalletOperation>('getOperationByRequest', { requestId }, signal);
     }
     disconnect(signal?: AbortSignal) {
-        return this.transport.request('disconnect', {}, signal) as Promise<void>;
+        return this.request<void>('disconnect', {}, signal);
     }
     destroy() {
+        this.disposed = true;
         this.transport.destroy();
     }
 }
@@ -119,7 +164,9 @@ export function createPopupTransport(options: { walletUrl: string; timeoutMs?: n
             const payload = JSON.parse(JSON.stringify(request));
             if (!boundedMessage(payload))
                 return Promise.reject(new WalletConnectorError('INVALID_REQUEST', 'Request too large'));
-            peer.focus();
+            if (['connect', 'sendCalls', 'signMessage', 'recoverDeposit', 'disconnect'].includes(method)) {
+                peer.focus();
+            }
             return new Promise((resolve, reject) => {
                 let sent = false;
                 const finish = (error?: Error, result?: unknown) => {

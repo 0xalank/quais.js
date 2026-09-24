@@ -16,13 +16,18 @@ const wallet = new SmartAccountClient(
 // Call from a click handler so the browser permits the popup.
 const account = await wallet.connect();
 const capabilities = await wallet.getCapabilities();
+const requestId = crypto.randomUUID();
+// Persist requestId and the exact calls before opening the wallet.
 const operation = await wallet.sendCalls({
     chainId: account.chainId,
     account: account.address,
     calls: [{ to: recipient, value: '1000000000000000000', data: '0x' }],
+    requestId,
 });
 // Operation IDs are opaque relay IDs, not transaction hashes.
 const status = await wallet.getOperation(operation.id);
+// If a reload lost the sendCalls response:
+const recovered = await wallet.getOperationByRequest(requestId);
 // Only status.state === 'confirmed' reports confirmed success.
 await wallet.disconnect();
 wallet.destroy();
@@ -31,7 +36,9 @@ wallet.destroy();
 Amounts are decimal base-unit strings. `data` is hexadecimal contract calldata.
 The selected wallet determines supported actions, contract implementation, signing
 provider and sponsorship. Check capabilities before using optional methods.
-`getFeeQuote` is available to transports with quote support; the current Quai Smart
+`signMessage`, `getDepositQuote`, `getDepositStatus`, and `recoverDeposit` are
+available to hosts that advertise those capabilities. `getFeeQuote` is available
+to transports with quote support; the current Quai Smart
 Wallet host advertises `payment.quotes: false` and rejects that method. All actions
 accepted by that host's relay are sponsored without reimbursement, subject to capacity.
 Capabilities do not reserve gas or guarantee admission.
@@ -49,9 +56,14 @@ The reference Quai Smart Wallet host supplies these separately.
 -   Pin the wallet URL; never take it from an untrusted transaction or query string.
 -   HTTPS is required except exact localhost origins for development. Popup messages
     bind both window identity and origin, version, channel and request ID.
--   One outstanding request per connector. Requests are never automatically retried.
+-   Requests are serialized through one popup and are never automatically retried.
+    `pendingRequests` includes active and queued work, so apps can skip background
+    polling while an interactive action is pending.
 -   `AbortSignal`, popup closure and timeouts stop waiting. They cannot reverse a
     transaction already submitted. Inspect activity/status before any retry.
+-   Persist a UUIDv4 `requestId` before `sendCalls` or `recoverDeposit`. A conforming
+    host can map it to an operation before relay submission; recover a response lost
+    during refresh with `getOperationByRequest(requestId)`.
 -   Keep the popup open for noninteractive status reads. If closed, invoke the next
     request from a user gesture to reopen it. Reloading a pending popup requires recovery.
 -   After 1,000 requests, the host returns `RECONNECT`. The transport closes that

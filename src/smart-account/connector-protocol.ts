@@ -6,6 +6,67 @@ export interface SendCalls {
     chainId: string;
     account: string;
     calls: { to: string; value: string; data: string }[];
+    /** Durable dApp-generated correlation ID. Persist it before opening the wallet. */
+    requestId?: string;
+}
+export interface SignMessage {
+    chainId: string;
+    account: string;
+    message: string;
+}
+export interface WalletSignature {
+    signature: string;
+}
+export type DepositRouteId = 'ethereum-usdt' | 'base-quai';
+export interface DepositQuote {
+    chainId: string;
+    account: string;
+    routeId: DepositRouteId;
+    sourceSender: string;
+    amount: string;
+}
+export interface DepositTransfer {
+    chainId: '9';
+    account: string;
+    routeId: DepositRouteId;
+    sourceHash: string;
+    /** Durable dApp-generated correlation ID for recovery submissions. */
+    requestId?: string;
+}
+export interface WalletDepositPlan {
+    version: 1;
+    routeId: DepositRouteId;
+    sourceChainId: 1 | 8453;
+    account: string;
+    sourceSender: string;
+    amount: string;
+    fee: string;
+    minimumOutput: string;
+    expiresAt: number;
+    quotedAt: number;
+    refundAuthority: string;
+    refundRecipient: string;
+    transaction: { to: string; data: string; value: '0'; chainId: 1 | 8453 };
+}
+export interface WalletDepositStatus {
+    routeId: DepositRouteId;
+    sourceHash: string;
+    account: string;
+    state:
+        | 'source-pending'
+        | 'source-reverted'
+        | 'source-confirming'
+        | 'bridging'
+        | 'delivered'
+        | 'recoverable'
+        | 'recovery-requested'
+        | 'refunded';
+    recoverAfter?: number;
+    refundRecipient?: string;
+    amount?: string;
+    outputBalance: string;
+    destinationHash?: string;
+    receivedAmount?: string;
 }
 export interface WalletAccount {
     address: string;
@@ -27,6 +88,8 @@ export interface WalletOperation {
     id: string;
     state: 'reserved' | 'signed' | 'submitted' | 'confirmed' | 'reverted' | 'uncertain';
     txHash?: string;
+    safeTxHash?: string;
+    requestId?: string;
 }
 export interface WalletFeeQuote {
     id: string;
@@ -43,7 +106,12 @@ export const methods = [
     'getCapabilities',
     'getFeeQuote',
     'sendCalls',
+    'signMessage',
+    'getDepositQuote',
+    'getDepositStatus',
+    'recoverDeposit',
     'getOperation',
+    'getOperationByRequest',
     'disconnect',
 ] as const;
 export type WalletMethod = (typeof methods)[number];
@@ -73,11 +141,16 @@ function object(value: unknown, keys: string[]): Record<string, unknown> {
     return value as Record<string, unknown>;
 }
 export function parseCalls(value: unknown): SendCalls {
-    const v = object(value, ['chainId', 'account', 'calls']);
+    const raw = value as Record<string, unknown> | null;
+    const keys = raw?.requestId === undefined
+        ? ['chainId', 'account', 'calls']
+        : ['chainId', 'account', 'calls', 'requestId'];
+    const v = object(value, keys);
     if (
         !uint(v.chainId) ||
         v.chainId === '0' ||
         !addr(v.account) ||
+        (v.requestId !== undefined && !isConnectorUuid(v.requestId)) ||
         !Array.isArray(v.calls) ||
         !v.calls.length ||
         v.calls.length > 16
@@ -95,7 +168,53 @@ export function parseCalls(value: unknown): SendCalls {
             throw new Error('Invalid call');
         return { to: call.to, value: call.value, data: call.data };
     });
-    return { chainId: v.chainId, account: v.account, calls };
+    return {
+        chainId: v.chainId,
+        account: v.account,
+        calls,
+        ...(v.requestId === undefined ? {} : { requestId: v.requestId as string }),
+    };
+}
+export function parseSignMessage(value: unknown): SignMessage {
+    const v = object(value, ['chainId', 'account', 'message']);
+    if (
+        !uint(v.chainId) ||
+        v.chainId === '0' ||
+        !addr(v.account) ||
+        typeof v.message !== 'string' ||
+        v.message.length < 1 ||
+        v.message.length > 8192
+    )
+        throw new Error('Invalid message request');
+    return { chainId: v.chainId, account: v.account, message: v.message };
+}
+export function parseDepositQuote(value: unknown): DepositQuote {
+    const v = object(value, ['chainId', 'account', 'routeId', 'sourceSender', 'amount']);
+    if (
+        v.chainId !== '9' ||
+        !addr(v.account) ||
+        !['ethereum-usdt', 'base-quai'].includes(String(v.routeId)) ||
+        !addr(v.sourceSender) ||
+        !uint(v.amount) ||
+        v.amount === '0'
+    ) throw new Error('Invalid deposit quote request');
+    return v as unknown as DepositQuote;
+}
+export function parseDepositTransfer(value: unknown): DepositTransfer {
+    const raw = value as Record<string, unknown> | null;
+    const keys = raw?.requestId === undefined
+        ? ['chainId', 'account', 'routeId', 'sourceHash']
+        : ['chainId', 'account', 'routeId', 'sourceHash', 'requestId'];
+    const v = object(value, keys);
+    if (
+        v.chainId !== '9' ||
+        !addr(v.account) ||
+        !['ethereum-usdt', 'base-quai'].includes(String(v.routeId)) ||
+        typeof v.sourceHash !== 'string' ||
+        !/^0x[0-9a-fA-F]{64}$/.test(v.sourceHash) ||
+        (v.requestId !== undefined && !isConnectorUuid(v.requestId))
+    ) throw new Error('Invalid deposit transfer request');
+    return v as unknown as DepositTransfer;
 }
 export function parseRequest(value: unknown): ConnectorRequest {
     const v = object(value, ['protocol', 'version', 'channel', 'id', 'method', 'params']);
@@ -121,10 +240,18 @@ export function parseRequest(value: unknown): ConnectorRequest {
 export function parseParams(method: WalletMethod, params: unknown): unknown {
     if (!methods.includes(method)) throw new Error('Unsupported method');
     if (method === 'sendCalls' || method === 'getFeeQuote') return parseCalls(params);
+    if (method === 'signMessage') return parseSignMessage(params);
+    if (method === 'getDepositQuote') return parseDepositQuote(params);
+    if (method === 'getDepositStatus' || method === 'recoverDeposit') return parseDepositTransfer(params);
     if (method === 'getOperation') {
         const v = object(params, ['id']);
         if (typeof v.id !== 'string' || !/^0x[a-fA-F0-9]{64}$/.test(v.id)) throw new Error('Invalid operation ID');
         return { id: v.id };
+    }
+    if (method === 'getOperationByRequest') {
+        const v = object(params, ['requestId']);
+        if (!isConnectorUuid(v.requestId)) throw new Error('Invalid request ID');
+        return { requestId: v.requestId };
     }
     return object(params, []);
 }
@@ -172,20 +299,86 @@ export function parseResult(method: WalletMethod, result: unknown): unknown {
         if (!addr(v.address) || !uint(v.chainId) || v.chainId === '0') throw new Error('Invalid account result');
         return { address: v.address, chainId: v.chainId };
     }
-    if (method === 'sendCalls' || method === 'getOperation') {
+    if (
+        method === 'sendCalls' ||
+        method === 'recoverDeposit' ||
+        method === 'getOperation' ||
+        method === 'getOperationByRequest'
+    ) {
         if (
             typeof v.id !== 'string' ||
             !/^0x[0-9a-f]{64}$/i.test(v.id) ||
             typeof v.state !== 'string' ||
             !['reserved', 'signed', 'submitted', 'confirmed', 'reverted', 'uncertain'].includes(v.state) ||
-            (v.txHash !== undefined && (typeof v.txHash !== 'string' || !/^0x[0-9a-f]{64}$/i.test(v.txHash)))
+            (v.txHash !== undefined && (typeof v.txHash !== 'string' || !/^0x[0-9a-f]{64}$/i.test(v.txHash))) ||
+            (v.safeTxHash !== undefined &&
+                (typeof v.safeTxHash !== 'string' || !/^0x[0-9a-f]{64}$/i.test(v.safeTxHash))) ||
+            (v.requestId !== undefined && !isConnectorUuid(v.requestId))
         )
             throw new Error('Invalid operation result');
         return {
             id: v.id,
             state: v.state,
             ...(v.txHash ? { txHash: v.txHash } : {}),
+            ...(v.safeTxHash ? { safeTxHash: v.safeTxHash } : {}),
+            ...(v.requestId ? { requestId: v.requestId } : {}),
         };
+    }
+    if (method === 'signMessage') {
+        if (typeof v.signature !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(v.signature))
+            throw new Error('Invalid account signature');
+        return { signature: v.signature };
+    }
+    if (method === 'getDepositQuote') {
+        const transaction = v.transaction as Record<string, unknown> | undefined;
+        if (
+            v.version !== 1 ||
+            !['ethereum-usdt', 'base-quai'].includes(String(v.routeId)) ||
+            ![1, 8453].includes(Number(v.sourceChainId)) ||
+            !addr(v.account) ||
+            !addr(v.sourceSender) ||
+            !uint(v.amount) ||
+            !uint(v.fee) ||
+            !uint(v.minimumOutput) ||
+            typeof v.expiresAt !== 'number' ||
+            !Number.isSafeInteger(v.expiresAt) ||
+            typeof v.quotedAt !== 'number' ||
+            !Number.isSafeInteger(v.quotedAt) ||
+            !addr(v.refundAuthority) ||
+            !addr(v.refundRecipient) ||
+            !transaction ||
+            !addr(transaction.to) ||
+            typeof transaction.data !== 'string' ||
+            !/^0x(?:[0-9a-fA-F]{2})*$/.test(transaction.data) ||
+            transaction.value !== '0' ||
+            ![1, 8453].includes(Number(transaction.chainId))
+        ) throw new Error('Invalid deposit plan');
+    }
+    if (method === 'getDepositStatus') {
+        if (
+            !['ethereum-usdt', 'base-quai'].includes(String(v.routeId)) ||
+            typeof v.sourceHash !== 'string' ||
+            !/^0x[0-9a-fA-F]{64}$/.test(v.sourceHash) ||
+            !addr(v.account) ||
+            ![
+                'source-pending',
+                'source-reverted',
+                'source-confirming',
+                'bridging',
+                'delivered',
+                'recoverable',
+                'recovery-requested',
+                'refunded',
+            ].includes(String(v.state)) ||
+            !uint(v.outputBalance) ||
+            (v.recoverAfter !== undefined &&
+                (typeof v.recoverAfter !== 'number' || !Number.isSafeInteger(v.recoverAfter))) ||
+            (v.refundRecipient !== undefined && !addr(v.refundRecipient)) ||
+            (v.amount !== undefined && !uint(v.amount)) ||
+            (v.destinationHash !== undefined &&
+                (typeof v.destinationHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(v.destinationHash))) ||
+            (v.receivedAmount !== undefined && !uint(v.receivedAmount))
+        ) throw new Error('Invalid deposit status');
     }
     if (method === 'getCapabilities') {
         const p = v.payment as Record<string, unknown> | undefined;
