@@ -13,11 +13,13 @@ const wallet = new SmartAccountClient(
         walletUrl: 'https://wallet.qu.ai', // configure a trusted wallet host
     }),
 );
-// Call from a click handler so the browser permits the popup.
+// Call connect from a click handler so the browser permits the popup.
 const account = await wallet.connect();
 const capabilities = await wallet.getCapabilities();
 const requestId = crypto.randomUUID();
 // Persist requestId and the exact calls before opening the wallet.
+// On later action clicks, prepare synchronously before awaiting quotes or RPC.
+wallet.prepare();
 const operation = await wallet.sendCalls({
     chainId: account.chainId,
     account: account.address,
@@ -59,6 +61,10 @@ The reference Quai Smart Wallet host supplies these separately.
 -   Requests are serialized through one popup and are never automatically retried.
     `pendingRequests` includes active and queued work, so apps can skip background
     polling while an interactive action is pending.
+-   Call `prepare()` synchronously from action click handlers before awaited quote,
+    simulation or RPC work. It opens or focuses the trusted wallet without starting
+    a request, preventing browser popup blocking after a page reload loses the old
+    window handle.
 -   `AbortSignal`, popup closure and timeouts stop waiting. They cannot reverse a
     transaction already submitted. Inspect activity/status before any retry.
 -   Persist a UUIDv4 `requestId` before `sendCalls` or `recoverDeposit`. A conforming

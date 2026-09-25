@@ -27,6 +27,8 @@ export * from './connector-protocol.js';
  * Framework-, signer-, factory- and relay-independent request boundary.
  */
 export interface WalletTransport {
+    /** Open or focus the trusted wallet while the browser still recognizes a user gesture. */
+    prepare?(): void;
     request(method: WalletMethod, params: unknown, signal?: AbortSignal): Promise<unknown>;
     destroy(): void;
 }
@@ -38,6 +40,12 @@ export class SmartAccountClient {
     /** Includes the active request and requests waiting behind it. */
     get pendingRequests() {
         return this.queued;
+    }
+    /** Prepare the approval window synchronously before a dApp awaits RPC preflight. */
+    prepare() {
+        if (this.disposed)
+            throw new WalletConnectorError('DISCONNECTED', 'Connector disposed');
+        this.transport.prepare?.();
     }
     private request<T>(method: WalletMethod, params: unknown, signal?: AbortSignal): Promise<T> {
         if (this.disposed)
@@ -112,7 +120,39 @@ export function createPopupTransport(options: { walletUrl: string; timeoutMs?: n
         channel = browser.crypto.randomUUID(),
         disposed = false;
     let pending: { id: string; fail(error: Error): void } | undefined;
+    const openPopup = (): WalletPopup => {
+        if (disposed)
+            throw new WalletConnectorError('DISCONNECTED', 'Connector disposed');
+        if (!popup || popup.closed) {
+            channel = browser.crypto.randomUUID();
+            const destination = new URL(url.toString());
+            // Fragment metadata is not sent to the hosting server or HTTP referrers.
+            destination.hash = new URLSearchParams({
+                walletConnector: '1',
+                origin: trustedOrigin(browser.location.origin),
+                channel,
+            }).toString();
+            const opened = browser.window.open(new URL('about:blank'), '_blank', 'popup,width=460,height=780');
+            if (opened) {
+                try {
+                    // Clear the opener while the blank popup is still same-origin.
+                    opened.opener = null;
+                    opened.location.replace(destination.toString());
+                    popup = opened;
+                } catch {
+                    opened.close();
+                    throw new WalletConnectorError('POPUP_BLOCKED', 'Could not open the wallet popup.');
+                }
+            }
+        }
+        if (!popup)
+            throw new WalletConnectorError('POPUP_BLOCKED', 'Allow the wallet popup and try again.');
+        return popup;
+    };
     return {
+        prepare() {
+            openPopup().focus();
+        },
         request(method, params, signal) {
             if (disposed) return Promise.reject(new WalletConnectorError('DISCONNECTED', 'Connector disposed'));
             if (pending) return Promise.reject(new WalletConnectorError('BUSY', 'A wallet request is already pending'));
@@ -122,36 +162,13 @@ export function createPopupTransport(options: { walletUrl: string; timeoutMs?: n
             } catch {
                 return Promise.reject(new WalletConnectorError('INVALID_REQUEST', 'Invalid wallet request'));
             }
-            if (!popup || popup.closed) {
-                channel = browser.crypto.randomUUID();
-                const destination = new URL(url.toString());
-                // Fragment metadata is not sent to the hosting server or HTTP referrers.
-                destination.hash = new URLSearchParams({
-                    walletConnector: '1',
-                    origin: trustedOrigin(browser.location.origin),
-                    channel,
-                }).toString();
-                const opened = browser.window.open(new URL('about:blank'), '_blank', 'popup,width=460,height=780');
-                if (opened) {
-                    try {
-                        // Clear the opener while the blank popup is still same-origin.
-                        opened.opener = null;
-                        opened.location.replace(destination.toString());
-                        popup = opened;
-                    } catch {
-                        opened.close();
-                        return Promise.reject(
-                            new WalletConnectorError('POPUP_BLOCKED', 'Could not open the wallet popup.'),
-                        );
-                    }
-                }
+            let peer: WalletPopup;
+            try {
+                peer = openPopup();
+            } catch (error) {
+                return Promise.reject(error);
             }
-            if (!popup)
-                return Promise.reject(
-                    new WalletConnectorError('POPUP_BLOCKED', 'Allow the wallet popup and try again.'),
-                );
-            const peer = popup,
-                id = browser.crypto.randomUUID();
+            const id = browser.crypto.randomUUID();
             const request = {
                 protocol: CONNECTOR_PROTOCOL,
                 version: 1,
