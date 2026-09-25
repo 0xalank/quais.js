@@ -65,6 +65,11 @@ The reference Quai Smart Wallet host supplies these separately.
     simulation or RPC work. It opens or focuses the trusted wallet without starting
     a request, preventing browser popup blocking after a page reload loses the old
     window handle.
+-   The popup transport focuses interactive requests by default. A reviewed host can
+    opt specific methods into `backgroundMethods` and call `prepare({ focus: false })`
+    to keep an existing window behind the dApp. This changes focus only: the host must
+    still validate every request and bring itself forward whenever user review is
+    required.
 -   `AbortSignal`, popup closure and timeouts stop waiting. They cannot reverse a
     transaction already submitted. Inspect activity/status before any retry.
 -   Persist a UUIDv4 `requestId` before `sendCalls` or `recoverDeposit`. A conforming

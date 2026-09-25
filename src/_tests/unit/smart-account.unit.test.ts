@@ -9,8 +9,8 @@ describe('smart-account client (no browser or signer required)', function () {
     it('accepts an interchangeable transport', async function () {
         const requests: string[] = [];
         const transport: WalletTransport = {
-            prepare() {
-                requests.push('prepare');
+            prepare(options) {
+                requests.push(`prepare:${options?.focus === false ? 'background' : 'focus'}`);
             },
             async request(method) {
                 requests.push(method);
@@ -21,13 +21,19 @@ describe('smart-account client (no browser or signer required)', function () {
             },
         };
         const client = new SmartAccountClient(transport);
-        client.prepare();
+        client.prepare({ focus: false });
         assert.deepEqual(await client.connect(), { address: account, chainId: '9' });
         await client.getCapabilities();
         const requestId = randomUUID();
         await client.getOperationByRequest(requestId);
         client.destroy();
-        assert.deepEqual(requests, ['prepare', 'connect', 'getCapabilities', 'getOperationByRequest', 'destroy']);
+        assert.deepEqual(requests, [
+            'prepare:background',
+            'connect',
+            'getCapabilities',
+            'getOperationByRequest',
+            'destroy',
+        ]);
     });
     it('rejects invalid quantities, extra privileges and insecure origins', function () {
         const input = { account, chainId: '9', calls: [{ to: account, value: '1', data: '0x' }] };

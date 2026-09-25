@@ -2,6 +2,7 @@ import {
     CONNECTOR_PROTOCOL,
     WalletConnectorError,
     connectorBrowser,
+    methods,
     type WalletPopup,
     type ConnectorMessageEvent,
     boundedMessage,
@@ -28,7 +29,7 @@ export * from './connector-protocol.js';
  */
 export interface WalletTransport {
     /** Open or focus the trusted wallet while the browser still recognizes a user gesture. */
-    prepare?(): void;
+    prepare?(options?: { focus?: boolean }): void;
     request(method: WalletMethod, params: unknown, signal?: AbortSignal): Promise<unknown>;
     destroy(): void;
 }
@@ -42,10 +43,10 @@ export class SmartAccountClient {
         return this.queued;
     }
     /** Prepare the approval window synchronously before a dApp awaits RPC preflight. */
-    prepare() {
+    prepare(options?: { focus?: boolean }) {
         if (this.disposed)
             throw new WalletConnectorError('DISCONNECTED', 'Connector disposed');
-        this.transport.prepare?.();
+        this.transport.prepare?.(options);
     }
     private request<T>(method: WalletMethod, params: unknown, signal?: AbortSignal): Promise<T> {
         if (this.disposed)
@@ -108,7 +109,15 @@ export class SmartAccountClient {
 /**
  * Open requests from a user gesture. Never retries a transaction request automatically.
  */
-export function createPopupTransport(options: { walletUrl: string; timeoutMs?: number }): WalletTransport {
+export function createPopupTransport(options: {
+    walletUrl: string;
+    timeoutMs?: number;
+    /**
+     * Keep an existing wallet window in the background for these methods.
+     * This changes window focus only; the wallet host still validates and approves every request.
+     */
+    backgroundMethods?: readonly WalletMethod[];
+}): WalletTransport {
     const browser = connectorBrowser();
     const url = new URL(options.walletUrl);
     const origin = trustedOrigin(url.origin);
@@ -116,6 +125,10 @@ export function createPopupTransport(options: { walletUrl: string; timeoutMs?: n
         throw new Error('Wallet URL must not contain credentials, query or fragment.');
     const timeout = options.timeoutMs ?? 180000;
     if (!Number.isSafeInteger(timeout) || timeout < 1000 || timeout > 600000) throw new Error('Invalid wallet timeout');
+    const backgroundMethods = new Set(options.backgroundMethods ?? []);
+    for (const method of backgroundMethods) {
+        if (!methods.includes(method)) throw new Error('Invalid background wallet method');
+    }
     let popup: WalletPopup | null = null,
         channel = browser.crypto.randomUUID(),
         disposed = false;
@@ -150,8 +163,9 @@ export function createPopupTransport(options: { walletUrl: string; timeoutMs?: n
         return popup;
     };
     return {
-        prepare() {
-            openPopup().focus();
+        prepare(prepareOptions) {
+            const peer = openPopup();
+            if (prepareOptions?.focus !== false) peer.focus();
         },
         request(method, params, signal) {
             if (disposed) return Promise.reject(new WalletConnectorError('DISCONNECTED', 'Connector disposed'));
@@ -181,7 +195,10 @@ export function createPopupTransport(options: { walletUrl: string; timeoutMs?: n
             const payload = JSON.parse(JSON.stringify(request));
             if (!boundedMessage(payload))
                 return Promise.reject(new WalletConnectorError('INVALID_REQUEST', 'Request too large'));
-            if (['connect', 'sendCalls', 'signMessage', 'recoverDeposit', 'disconnect'].includes(method)) {
+            if (
+                ['connect', 'sendCalls', 'signMessage', 'recoverDeposit', 'disconnect'].includes(method) &&
+                !backgroundMethods.has(method)
+            ) {
                 peer.focus();
             }
             return new Promise((resolve, reject) => {
